@@ -33,6 +33,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.importing.FacetImporter;
 import org.jetbrains.idea.maven.importing.MavenModifiableModelsProvider;
 import org.jetbrains.idea.maven.importing.MavenRootModelAdapter;
+import org.jetbrains.idea.maven.model.MavenArtifact;
 import org.jetbrains.idea.maven.model.MavenId;
 import org.jetbrains.idea.maven.model.MavenPlugin;
 import org.jetbrains.idea.maven.project.*;
@@ -63,7 +64,7 @@ public class OsmorcFacetImporter extends FacetImporter<OsmorcFacet, OsmorcFacetC
 
   @Override
   public boolean isApplicable(MavenProject mavenProject) {
-    return super.isApplicable(mavenProject) && "bundle".equals(mavenProject.getPackaging());
+    return super.isApplicable(mavenProject) && "bundle".equals(mavenProject.getPackaging()) || mavenProject.getPluginGoalConfiguration(myPluginGroupID, myPluginArtifactID, "manifest") != null;
   }
 
   @Override
@@ -131,7 +132,9 @@ public class OsmorcFacetImporter extends FacetImporter<OsmorcFacet, OsmorcFacetC
         value = value.replaceAll("\\p{Blank}*[\r\n]\\p{Blank}*", "");
         value = substituteVersions(value, versions);
 
-        if (INCLUDE_MANIFEST.equals(name)) {
+        if (value.contains("${")) {
+          //do nothing: todo replace with real properties
+        } else if (INCLUDE_MANIFEST.equals(name)) {
           conf.setManifestLocation(value);
           conf.setManifestGenerationMode(ManifestGenerationMode.Manually);
           conf.setUseProjectDefaultManifestFileLocation(false);
@@ -156,12 +159,28 @@ public class OsmorcFacetImporter extends FacetImporter<OsmorcFacet, OsmorcFacetC
         conf.setManifestLocation("");
         conf.setManifestGenerationMode(ManifestGenerationMode.OsmorcControlled);
         conf.setUseProjectDefaultManifestFileLocation(true);
+        props.put(aQute.bnd.osgi.Constants.SAVEMANIFEST, "target/classes/META-INF/MANIFEST.MF");
       }
     }
 
     // check if bundle name exists, if not compute it (IDEA-63244)
     if (!props.containsKey(Constants.BUNDLE_NAME)) {
       props.put(Constants.BUNDLE_NAME, computeBundleName(mavenProject));
+    }
+
+    if (props.containsKey(aQute.bnd.osgi.Constants.PLUGINPATH)) {
+      String pluginPath = "";
+      for (MavenId mavenId : plugin.getDependencies()) {
+        for (MavenArtifact artifact : mavenProject.findDependencies(mavenId)) {
+          if (!"".equals(pluginPath)) {
+            pluginPath += ",";
+          }
+
+          pluginPath += artifact.getFile().getAbsolutePath();
+        }
+      }
+
+      props.put(aQute.bnd.osgi.Constants.PLUGINPATH, pluginPath);
     }
 
     // now post-process the settings, to make Embed-Dependency work
